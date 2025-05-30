@@ -23,8 +23,14 @@ import java.security.interfaces.RSAPublicKey
  * JWT authentication filter that validates Firebase ID tokens on incoming requests.
  * 
  * This filter extracts JWT tokens from the Authorization header, validates them using
- * Google's public keys, and sets up Spring Security authentication context for valid tokens.
- * It supports multiple Firebase project IDs and validates both the issuer and audience claims.
+ * Firebase's official JWK endpoint, and sets up Spring Security authentication context 
+ * for valid tokens. Implementation follows Firebase's official documentation for 
+ * third-party JWT library verification.
+ * 
+ * Validates all required claims per Firebase documentation:
+ * - Header: alg=RS256, kid matches Firebase keys
+ * - Payload: exp, iat, aud, iss, sub, auth_time
+ * - Supports multiple Firebase project IDs
  */
 @Component
 class JwtAuthFilter(
@@ -109,9 +115,10 @@ class JwtAuthFilter(
             // Verify and decode the token
             val decodedJWT = verifier.verify(token)
             
-            // Custom validation for multiple Firebase projects
+            // Firebase-specific validation
             validateMultipleIssuers(decodedJWT.issuer) ?: return null
             validateMultipleAudiences(decodedJWT.audience?.firstOrNull()) ?: return null
+            validateFirebaseSpecificClaims(decodedJWT) ?: return null
 
             return decodedJWT
 
@@ -163,6 +170,42 @@ class JwtAuthFilter(
                 audience, allowedAudiences.joinToString(", "))
             null
         }
+    }
+
+    /**
+     * Validates Firebase-specific JWT claims according to Firebase documentation.
+     * 
+     * @param decodedJWT The decoded JWT token
+     * @return Unit if valid, null if invalid
+     */
+    private fun validateFirebaseSpecificClaims(decodedJWT: DecodedJWT): Unit? {
+        // Validate subject (sub) is non-empty
+        val subject = decodedJWT.subject
+        if (subject.isNullOrBlank()) {
+            log.warn("JWT validation failed - Subject (sub) claim is missing or empty")
+            return null
+        }
+
+        // Validate auth_time exists and is in the past
+        val authTimeClaim = decodedJWT.getClaim("auth_time")
+        if (authTimeClaim.isNull) {
+            log.warn("JWT validation failed - auth_time claim is missing")
+            return null
+        }
+
+        try {
+            val authTime = authTimeClaim.asDate()
+            val now = java.util.Date()
+            if (authTime.after(now)) {
+                log.warn("JWT validation failed - auth_time '{}' is in the future", authTime)
+                return null
+            }
+        } catch (e: Exception) {
+            log.warn("JWT validation failed - Invalid auth_time format: {}", e.message)
+            return null
+        }
+
+        return Unit
     }
 
     private fun setupAuthentication(request: HttpServletRequest, decodedJWT: DecodedJWT) {

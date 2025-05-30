@@ -5,7 +5,8 @@
       "Bash(./gradlew:*)",
       "Bash(jj status:*)",
       "Bash(rm:*)",
-      "WebFetch(domain:github.com)"
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:firebase.google.com)"
     ],
     "deny": []
   }
