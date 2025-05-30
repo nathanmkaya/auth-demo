@@ -17,6 +17,12 @@ import java.security.KeyFactory
 import java.security.spec.RSAPublicKeySpec
 import java.util.*
 
+/**
+ * Service for fetching and caching Google's public keys used to verify Firebase ID tokens.
+ * 
+ * This service fetches JWK (JSON Web Key) sets from Google's public endpoints and parses
+ * them into RSA public keys that can be used for JWT signature verification.
+ */
 @Service
 class GooglePublicKeyService(
     private val webClientBuilder: WebClient.Builder,
@@ -25,6 +31,16 @@ class GooglePublicKeyService(
 
     private val log = LoggerFactory.getLogger(GooglePublicKeyService::class.java)
 
+    /**
+     * Fetches and parses the Google JWK set from the configured URI.
+     * 
+     * This method is cached to avoid repeated network calls to Google's endpoints.
+     * The cache is configured to expire based on Google's Cache-Control headers.
+     * 
+     * @return Map of key IDs to their corresponding RSA public keys
+     * @throws JwkFetchingException if the JWK set cannot be fetched from Google
+     * @throws JwkParsingException if the fetched JWK set cannot be parsed
+     */
     @Cacheable("googleJwkSet")
     fun fetchJwkSet(): Map<String, Key> {
         log.info("Fetching Google JWK Set from {}", googleJwkProperties.jwkSetUri)
@@ -85,6 +101,15 @@ class GooglePublicKeyService(
         }
     }
 
+    /**
+     * Retrieves a specific public key by its key ID (kid).
+     * 
+     * This method uses the cached JWK set from [fetchJwkSet] to look up the key.
+     * 
+     * @param kid The key ID to look up
+     * @return The RSA public key corresponding to the given key ID
+     * @throws UnsupportedJwtException if the key ID is not found in the JWK set
+     */
     fun getPublicKey(kid: String): Key {
         log.debug("Retrieving public key for kid: {}", kid)
         val jwkSetMap = fetchJwkSet()

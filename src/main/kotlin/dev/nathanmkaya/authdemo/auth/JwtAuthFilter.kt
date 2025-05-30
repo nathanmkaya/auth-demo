@@ -14,6 +14,13 @@ import org.springframework.security.web.authentication.WebAuthenticationDetailsS
 import org.springframework.stereotype.Component
 import org.springframework.web.filter.OncePerRequestFilter
 
+/**
+ * JWT authentication filter that validates Firebase ID tokens on incoming requests.
+ * 
+ * This filter extracts JWT tokens from the Authorization header, validates them using
+ * Google's public keys, and sets up Spring Security authentication context for valid tokens.
+ * It supports multiple Firebase project IDs and validates both the issuer and audience claims.
+ */
 @Component
 class JwtAuthFilter(
     private val googlePublicKeyService: GooglePublicKeyService,
