@@ -2,7 +2,6 @@ package dev.nathanmkaya.authdemo.auth
 
 import io.jsonwebtoken.*
 import io.jsonwebtoken.security.SecurityException
-import io.jsonwebtoken.security.SigningKeyResolverAdapter
 import jakarta.servlet.FilterChain
 import jakarta.servlet.http.HttpServletRequest
 import jakarta.servlet.http.HttpServletResponse
@@ -14,7 +13,6 @@ import org.springframework.security.core.context.SecurityContextHolder
 import org.springframework.security.web.authentication.WebAuthenticationDetailsSource
 import org.springframework.stereotype.Component
 import org.springframework.web.filter.OncePerRequestFilter
-import java.security.Key
 
 @Component
 class JwtAuthFilter(
@@ -31,18 +29,6 @@ class JwtAuthFilter(
     }
     private val allowedAudiences: Set<String> by lazy {
         allowedFirebaseProjectIds.toSet()
-    }
-
-    private val signingKeyResolver = object : SigningKeyResolverAdapter() {
-        override fun resolveSigningKey(header: JwsHeader<*>?): Key {
-            val keyId = header?.keyId ?: throw UnsupportedJwtException("JWT header does not contain 'kid' claim.")
-            try {
-                return googlePublicKeyService.getPublicKey(keyId)
-            } catch (e: Exception) {
-                log.error("Failed to resolve signing key for kid '{}': {}", keyId, e.message)
-                throw SecurityException("Could not resolve signing key for kid '$keyId'", e)
-            }
-        }
     }
 
     override fun doFilterInternal(
@@ -84,18 +70,40 @@ class JwtAuthFilter(
     private fun validateToken(token: String): Claims? {
         try {
             val parser: JwtParser = Jwts.parser()
-                .setSigningKeyResolver(signingKeyResolver)
-                .requireIssuerIn(allowedIssuers)
-                .requireAudienceIn(allowedAudiences)
+                .keyLocator { header ->
+                    val keyId = header["kid"] as? String ?: throw UnsupportedJwtException("JWT header does not contain 'kid' claim.")
+                    try {
+                        googlePublicKeyService.getPublicKey(keyId)
+                    } catch (e: Exception) {
+                        log.error("Failed to resolve signing key for kid '{}': {}", keyId, e.message)
+                        throw SecurityException("Could not resolve signing key for kid '$keyId'", e)
+                    }
+                }
                 .build()
 
             val jws: Jws<Claims> = parser.parseSignedClaims(token)
-            return jws.payload
+            val claims = jws.payload
+
+            // Validate issuer and audience manually
+            val issuer = claims.issuer
+            val audience = claims.audience?.toString()
+            
+            if (!allowedIssuers.contains(issuer)) {
+                log.warn("Invalid issuer: {}. Expected one of: {}", issuer, allowedIssuers)
+                return null
+            }
+            
+            if (!allowedAudiences.contains(audience)) {
+                log.warn("Invalid audience: {}. Expected one of: {}", audience, allowedAudiences)
+                return null
+            }
+
+            return claims
 
         } catch (ex: MissingClaimException) {
-            log.warn("JWT validation failed - Missing required claim [{}]: {}", ex.header, ex.message)
+            log.warn("JWT validation failed - Missing required claim: {}", ex.message)
         } catch (ex: IncorrectClaimException) {
-            log.warn("JWT validation failed - Incorrect claim [{}]: {}", ex.header, ex.message)
+            log.warn("JWT validation failed - Incorrect claim: {}", ex.message)
         } catch (ex: SecurityException) {
             log.warn("Invalid JWT signature or key issue: {}", ex.message)
         } catch (ex: MalformedJwtException) {

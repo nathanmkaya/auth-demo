@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(jj commit:*)"
+      "Bash(jj commit:*)",
+      "Bash(./gradlew:*)"
     ],
     "deny": []
   }

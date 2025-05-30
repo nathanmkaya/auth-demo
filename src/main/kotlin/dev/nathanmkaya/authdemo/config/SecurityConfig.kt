@@ -14,10 +14,10 @@ import org.springframework.web.reactive.function.client.WebClient
 @Configuration
 @EnableWebSecurity
 @EnableCaching
-class SecurityConfig(private val jwtAuthFilter: JwtAuthFilter) {
+class SecurityConfig {
 
     @Bean
-    fun securityFilterChain(http: HttpSecurity): SecurityFilterChain {
+    fun securityFilterChain(http: HttpSecurity, jwtAuthFilter: JwtAuthFilter): SecurityFilterChain {
         http
             .csrf { csrf -> csrf.disable() }
             .sessionManagement { session ->
