@@ -1,12 +1,12 @@
 package dev.nathanmkaya.authdemo.auth
 
+import dev.nathanmkaya.authdemo.config.FirebaseProperties
 import io.jsonwebtoken.*
 import io.jsonwebtoken.security.SecurityException
 import jakarta.servlet.FilterChain
 import jakarta.servlet.http.HttpServletRequest
 import jakarta.servlet.http.HttpServletResponse
 import org.slf4j.LoggerFactory
-import org.springframework.beans.factory.annotation.Value
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken
 import org.springframework.security.core.authority.SimpleGrantedAuthority
 import org.springframework.security.core.context.SecurityContextHolder
@@ -16,19 +16,17 @@ import org.springframework.web.filter.OncePerRequestFilter
 
 @Component
 class JwtAuthFilter(
-    private val googlePublicKeyService: GooglePublicKeyService
+    private val googlePublicKeyService: GooglePublicKeyService,
+    private val firebaseProperties: FirebaseProperties
 ) : OncePerRequestFilter() {
 
     private val log = LoggerFactory.getLogger(JwtAuthFilter::class.java)
 
-    @Value("\${firebase.project-ids}")
-    private lateinit var allowedFirebaseProjectIds: List<String>
-
     private val allowedIssuers: Set<String> by lazy {
-        allowedFirebaseProjectIds.map { "https://securetoken.google.com/$it" }.toSet()
+        firebaseProperties.projectIds.map { "https://securetoken.google.com/$it" }.toSet()
     }
     private val allowedAudiences: Set<String> by lazy {
-        allowedFirebaseProjectIds.toSet()
+        firebaseProperties.projectIds.toSet()
     }
 
     override fun doFilterInternal(

@@ -2,9 +2,9 @@ package dev.nathanmkaya.authdemo.auth
 
 import com.fasterxml.jackson.core.type.TypeReference
 import com.fasterxml.jackson.databind.ObjectMapper
+import dev.nathanmkaya.authdemo.config.GoogleJwkProperties
 import io.jsonwebtoken.UnsupportedJwtException
 import org.slf4j.LoggerFactory
-import org.springframework.beans.factory.annotation.Value
 import org.springframework.cache.annotation.Cacheable
 import org.springframework.stereotype.Service
 import org.springframework.web.reactive.function.client.WebClient
@@ -16,26 +16,26 @@ import java.security.spec.RSAPublicKeySpec
 import java.util.*
 
 @Service
-class GooglePublicKeyService(private val webClientBuilder: WebClient.Builder) {
+class GooglePublicKeyService(
+    private val webClientBuilder: WebClient.Builder,
+    private val googleJwkProperties: GoogleJwkProperties
+) {
 
     private val log = LoggerFactory.getLogger(GooglePublicKeyService::class.java)
 
-    @Value("\${google.jwk-set-uri}")
-    private lateinit var jwkSetUri: String
-
     @Cacheable("googleJwkSet")
     fun fetchJwkSet(): Map<String, Key> {
-        log.info("Fetching Google JWK Set from {}", jwkSetUri)
+        log.info("Fetching Google JWK Set from {}", googleJwkProperties.jwkSetUri)
         try {
             val responseBody = webClientBuilder.build()
                 .get()
-                .uri(jwkSetUri)
+                .uri(googleJwkProperties.jwkSetUri)
                 .retrieve()
                 .bodyToMono<String>()
                 .block()
 
             if (responseBody == null) {
-                log.error("Received empty response body from JWK Set URI: {}", jwkSetUri)
+                log.error("Received empty response body from JWK Set URI: {}", googleJwkProperties.jwkSetUri)
                 throw RuntimeException("Failed to fetch JWK Set: Empty response")
             }
 
@@ -70,20 +70,20 @@ class GooglePublicKeyService(private val webClientBuilder: WebClient.Builder) {
             }
 
             if (keyMap.isEmpty()) {
-                throw RuntimeException("No valid JWKs could be parsed from the fetched set at $jwkSetUri")
+                throw RuntimeException("No valid JWKs could be parsed from the fetched set at ${googleJwkProperties.jwkSetUri}")
             }
 
             log.info("Successfully parsed {} public keys", keyMap.size)
             return keyMap
 
         } catch (e: Exception) {
-            log.error("Failed to fetch or parse Google JWK Set from {}: {}", jwkSetUri, e.message, e)
-            throw RuntimeException("Failed to obtain Google public keys from $jwkSetUri", e)
+            log.error("Failed to fetch or parse Google JWK Set from {}: {}", googleJwkProperties.jwkSetUri, e.message, e)
+            throw RuntimeException("Failed to obtain Google public keys from ${googleJwkProperties.jwkSetUri}", e)
         }
     }
 
     fun getPublicKey(kid: String): Key {
         val jwkSetMap = fetchJwkSet()
-        return jwkSetMap[kid] ?: throw UnsupportedJwtException("JWT Key ID '$kid' not found in cached/fetched JWK Set from $jwkSetUri")
+        return jwkSetMap[kid] ?: throw UnsupportedJwtException("JWT Key ID '$kid' not found in cached/fetched JWK Set from ${googleJwkProperties.jwkSetUri}")
     }
 }

@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(jj commit:*)",
-      "Bash(./gradlew:*)"
+      "Bash(./gradlew:*)",
+      "Bash(jj status:*)"
     ],
     "deny": []
   }
