@@ -6,16 +6,14 @@ import dev.nathanmkaya.authdemo.auth.exceptions.JwkFetchingException
 import dev.nathanmkaya.authdemo.auth.exceptions.JwkParsingException
 import dev.nathanmkaya.authdemo.config.GoogleJwkProperties
 import io.jsonwebtoken.UnsupportedJwtException
+import io.jsonwebtoken.security.Jwk
+import io.jsonwebtoken.security.Jwks
 import org.slf4j.LoggerFactory
 import org.springframework.cache.annotation.Cacheable
 import org.springframework.stereotype.Service
 import org.springframework.web.reactive.function.client.WebClient
 import org.springframework.web.reactive.function.client.bodyToMono
-import java.math.BigInteger
 import java.security.Key
-import java.security.KeyFactory
-import java.security.spec.RSAPublicKeySpec
-import java.util.*
 
 /**
  * Service for fetching and caching Google's public keys used to verify Firebase ID tokens.
@@ -36,13 +34,14 @@ class GooglePublicKeyService(
      * 
      * This method is cached to avoid repeated network calls to Google's endpoints.
      * The cache is configured to expire based on Google's Cache-Control headers.
+     * Uses JJWT's built-in Jwks parser for robust key parsing.
      * 
-     * @return Map of key IDs to their corresponding RSA public keys
+     * @return Map of key IDs to their corresponding Jwk objects
      * @throws JwkFetchingException if the JWK set cannot be fetched from Google
      * @throws JwkParsingException if the fetched JWK set cannot be parsed
      */
     @Cacheable("googleJwkSet")
-    fun fetchJwkSet(): Map<String, Key> {
+    fun fetchJwkSet(): Map<String, Jwk<*>> {
         log.info("Fetching Google JWK Set from {}", googleJwkProperties.jwkSetUri)
         try {
             val responseBody = webClientBuilder.build()
@@ -57,43 +56,35 @@ class GooglePublicKeyService(
                 throw JwkFetchingException("Failed to fetch JWK Set: Empty response")
             }
 
+            // Parse the top-level structure using Jackson
             val objectMapper = ObjectMapper()
             val jwkMap: Map<String, List<Map<String, Any>>> = objectMapper.readValue(responseBody, object : TypeReference<Map<String, List<Map<String, Any>>>>() {})
             val keysList = jwkMap["keys"] ?: throw JwkParsingException("JWK Set JSON does not contain 'keys' array")
 
-            val keyMap = mutableMapOf<String, Key>()
-            
-            keysList.forEach { keyData ->
+            // Parse each key map using JJWT's Jwks parser (more robust)
+            val parsedJwks = keysList.mapNotNull { keyMap ->
                 try {
-                    val kid = keyData["kid"] as? String ?: return@forEach
-                    val kty = keyData["kty"] as? String ?: return@forEach
-                    val use = keyData["use"] as? String ?: return@forEach
-                    val n = keyData["n"] as? String ?: return@forEach
-                    val e = keyData["e"] as? String ?: return@forEach
-
-                    if (kty == "RSA" && use == "sig") {
-                        val modulus = BigInteger(1, Base64.getUrlDecoder().decode(n))
-                        val exponent = BigInteger(1, Base64.getUrlDecoder().decode(e))
-                        
-                        val spec = RSAPublicKeySpec(modulus, exponent)
-                        val keyFactory = KeyFactory.getInstance("RSA")
-                        val publicKey = keyFactory.generatePublic(spec)
-                        
-                        keyMap[kid] = publicKey
-                        log.debug("Parsed RSA public key for kid: {}", kid)
-                    }
+                    // Convert keyMap to JSON string and parse as JWK
+                    val jwkJson = objectMapper.writeValueAsString(keyMap)
+                    Jwks.parser().build().parse(jwkJson)
                 } catch (e: Exception) {
                     log.warn("Failed to parse individual JWK with kid '{}'. Skipping. Error: {}", 
-                        keyData["kid"] ?: "unknown", e.message, e)
+                        keyMap["kid"] ?: "unknown", e.message, e)
+                    null // Return null for unparseable keys
                 }
             }
 
-            if (keyMap.isEmpty()) {
+            if (parsedJwks.isEmpty()) {
                 throw JwkParsingException("No valid JWKs could be parsed from the fetched set at ${googleJwkProperties.jwkSetUri}")
             }
 
-            log.info("Successfully parsed {} public keys", keyMap.size)
-            return keyMap
+            // Create a map from kid -> Jwk for easy lookup
+            val result = parsedJwks.associateBy { jwk ->
+                jwk.id ?: throw JwkParsingException("Parsed JWK is missing 'kid'. JWK: $jwk")
+            }
+
+            log.info("Successfully parsed {} public keys", result.size)
+            return result
 
         } catch (e: Exception) {
             log.error("Failed to fetch or parse Google JWK Set from {}: {}", googleJwkProperties.jwkSetUri, e.message, e)
@@ -113,10 +104,13 @@ class GooglePublicKeyService(
     fun getPublicKey(kid: String): Key {
         log.debug("Retrieving public key for kid: {}", kid)
         val jwkSetMap = fetchJwkSet()
-        return jwkSetMap[kid] ?: run {
+        val jwk = jwkSetMap[kid] ?: run {
             log.error("JWT Key ID '{}' not found in JWK set. Available kids: {}", 
                 kid, jwkSetMap.keys.joinToString(", "))
             throw UnsupportedJwtException("JWT Key ID '$kid' not found in cached/fetched JWK Set from ${googleJwkProperties.jwkSetUri}")
         }
+        
+        // Extract the actual key from the Jwk object
+        return jwk.toKey() ?: throw UnsupportedJwtException("JWK '$kid' from ${googleJwkProperties.jwkSetUri} did not produce a usable Key object.")
     }
 }

@@ -83,6 +83,9 @@ class JwtAuthFilter(
 
     private fun validateToken(token: String): Claims? {
         try {
+            // Build the parser with keyLocator for signature verification
+            // Note: JJWT's built-in require methods only support single values, but we need to support
+            // multiple Firebase project IDs, so we perform manual validation after parsing
             val parser: JwtParser = Jwts.parser()
                 .keyLocator { header ->
                     val keyId = header["kid"] as? String ?: throw UnsupportedJwtException("JWT header does not contain 'kid' claim.")
@@ -94,21 +97,23 @@ class JwtAuthFilter(
                         throw SecurityException("Could not resolve signing key for kid '$keyId'", e)
                     }
                 }
+                // Expiration (exp) and Not Before (nbf) are checked by default
                 .build()
 
+            // Parse the token and verify signature + expiration
             val jws: Jws<Claims> = parser.parseSignedClaims(token)
             val claims = jws.payload
 
-            // Validate issuer and audience manually
+            // Validate issuer against allowed list (supports multiple Firebase projects)
             val issuer = claims.issuer
-            val audience = claims.audience?.toString()
-            
             if (!allowedIssuers.contains(issuer)) {
                 log.warn("JWT validation failed - Invalid issuer: '{}'. Expected one of: [{}]", 
                     issuer, allowedIssuers.joinToString(", "))
                 return null
             }
             
+            // Validate audience against allowed list (supports multiple Firebase projects)
+            val audience = claims.audience?.toString()
             if (!allowedAudiences.contains(audience)) {
                 log.warn("JWT validation failed - Invalid audience: '{}'. Expected one of: [{}]", 
                     audience, allowedAudiences.joinToString(", "))
