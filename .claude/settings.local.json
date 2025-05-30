@@ -4,7 +4,8 @@
       "Bash(jj commit:*)",
       "Bash(./gradlew:*)",
       "Bash(jj status:*)",
-      "Bash(rm:*)"
+      "Bash(rm:*)",
+      "WebFetch(domain:github.com)"
     ],
     "deny": []
   }

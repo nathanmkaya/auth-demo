@@ -84,8 +84,7 @@ class JwtAuthFilter(
     private fun validateToken(token: String): Claims? {
         try {
             // Build the parser with keyLocator for signature verification
-            // Note: JJWT's built-in require methods only support single values, but we need to support
-            // multiple Firebase project IDs, so we perform manual validation after parsing
+            // Using the recommended JJWT pattern for dynamic key resolution
             val parser: JwtParser = Jwts.parser()
                 .keyLocator { header ->
                     val keyId = header["kid"] as? String ?: throw UnsupportedJwtException("JWT header does not contain 'kid' claim.")
@@ -100,25 +99,14 @@ class JwtAuthFilter(
                 // Expiration (exp) and Not Before (nbf) are checked by default
                 .build()
 
-            // Parse the token and verify signature + expiration
+            // Parse the token and verify signature + standard claims (exp, nbf)
             val jws: Jws<Claims> = parser.parseSignedClaims(token)
             val claims = jws.payload
 
-            // Validate issuer against allowed list (supports multiple Firebase projects)
-            val issuer = claims.issuer
-            if (!allowedIssuers.contains(issuer)) {
-                log.warn("JWT validation failed - Invalid issuer: '{}'. Expected one of: [{}]", 
-                    issuer, allowedIssuers.joinToString(", "))
-                return null
-            }
-            
-            // Validate audience against allowed list (supports multiple Firebase projects)
-            val audience = claims.audience?.toString()
-            if (!allowedAudiences.contains(audience)) {
-                log.warn("JWT validation failed - Invalid audience: '{}'. Expected one of: [{}]", 
-                    audience, allowedAudiences.joinToString(", "))
-                return null
-            }
+            // Custom validation for multiple Firebase projects (post-parsing)
+            // JJWT's built-in require methods only support single values
+            validateMultipleIssuers(claims.issuer) ?: return null
+            validateMultipleAudiences(claims.audience?.toString()) ?: return null
 
             return claims
 
@@ -140,6 +128,38 @@ class JwtAuthFilter(
             log.error("Unexpected error during JWT validation: {}", e.message, e)
         }
         return null
+    }
+
+    /**
+     * Validates the JWT issuer against multiple allowed Firebase project issuers.
+     * 
+     * @param issuer The issuer claim from the JWT
+     * @return Unit if valid, null if invalid
+     */
+    private fun validateMultipleIssuers(issuer: String?): Unit? {
+        return if (allowedIssuers.contains(issuer)) {
+            Unit
+        } else {
+            log.warn("JWT validation failed - Invalid issuer: '{}'. Expected one of: [{}]", 
+                issuer, allowedIssuers.joinToString(", "))
+            null
+        }
+    }
+
+    /**
+     * Validates the JWT audience against multiple allowed Firebase project audiences.
+     * 
+     * @param audience The audience claim from the JWT
+     * @return Unit if valid, null if invalid
+     */
+    private fun validateMultipleAudiences(audience: String?): Unit? {
+        return if (allowedAudiences.contains(audience)) {
+            Unit
+        } else {
+            log.warn("JWT validation failed - Invalid audience: '{}'. Expected one of: [{}]", 
+                audience, allowedAudiences.joinToString(", "))
+            null
+        }
     }
 
     private fun setupAuthentication(request: HttpServletRequest, claims: Claims) {
