@@ -1,16 +1,11 @@
 package dev.nathanmkaya.authdemo.auth
 
+import com.auth0.jwt.JWT
+import com.auth0.jwt.algorithms.Algorithm
+import com.auth0.jwt.exceptions.*
+import com.auth0.jwt.interfaces.DecodedJWT
+import com.auth0.jwt.interfaces.RSAKeyProvider
 import dev.nathanmkaya.authdemo.config.FirebaseProperties
-import io.jsonwebtoken.Claims
-import io.jsonwebtoken.ExpiredJwtException
-import io.jsonwebtoken.IncorrectClaimException
-import io.jsonwebtoken.Jws
-import io.jsonwebtoken.JwtParser
-import io.jsonwebtoken.Jwts
-import io.jsonwebtoken.MalformedJwtException
-import io.jsonwebtoken.MissingClaimException
-import io.jsonwebtoken.UnsupportedJwtException
-import io.jsonwebtoken.security.SecurityException
 import jakarta.servlet.FilterChain
 import jakarta.servlet.http.HttpServletRequest
 import jakarta.servlet.http.HttpServletResponse
@@ -21,6 +16,8 @@ import org.springframework.security.core.context.SecurityContextHolder
 import org.springframework.security.web.authentication.WebAuthenticationDetailsSource
 import org.springframework.stereotype.Component
 import org.springframework.web.filter.OncePerRequestFilter
+import java.security.interfaces.RSAPrivateKey
+import java.security.interfaces.RSAPublicKey
 
 /**
  * JWT authentication filter that validates Firebase ID tokens on incoming requests.
@@ -44,6 +41,24 @@ class JwtAuthFilter(
         firebaseProperties.projectIds.toSet()
     }
 
+    /**
+     * RSA Key Provider for Auth0 JWT library.
+     * Provides public keys for JWT verification using Google's JWK endpoint.
+     */
+    private val keyProvider = object : RSAKeyProvider {
+        override fun getPublicKeyById(keyId: String): RSAPublicKey? {
+            return try {
+                googlePublicKeyService.getPublicKey(keyId)
+            } catch (e: Exception) {
+                log.error("Failed to get public key for kid '{}': {}", keyId, e.message)
+                null
+            }
+        }
+
+        override fun getPrivateKey(): RSAPrivateKey? = null
+        override fun getPrivateKeyId(): String? = null
+    }
+
     override fun doFilterInternal(
         request: HttpServletRequest,
         response: HttpServletResponse,
@@ -52,11 +67,11 @@ class JwtAuthFilter(
         try {
             val token = extractToken(request)
             if (token != null) {
-                val claims = validateToken(token)
-                if (claims != null) {
-                    setupAuthentication(request, claims)
+                val decodedJWT = validateToken(token)
+                if (decodedJWT != null) {
+                    setupAuthentication(request, decodedJWT)
                     log.debug("JWT Authentication successful for userId: {}, issuer: {}", 
-                        claims.subject, claims.issuer)
+                        decodedJWT.subject, decodedJWT.issuer)
                 } else {
                     log.debug("JWT Token validation failed for request to: {}", request.requestURI)
                     SecurityContextHolder.clearContext()
@@ -81,49 +96,37 @@ class JwtAuthFilter(
         }
     }
 
-    private fun validateToken(token: String): Claims? {
+    private fun validateToken(token: String): DecodedJWT? {
         try {
-            // Build the parser with keyLocator for signature verification
-            // Using the recommended JJWT pattern for dynamic key resolution
-            val parser: JwtParser = Jwts.parser()
-                .keyLocator { header ->
-                    val keyId = header["kid"] as? String ?: throw UnsupportedJwtException("JWT header does not contain 'kid' claim.")
-                    try {
-                        log.debug("Resolving signing key for kid: {}", keyId)
-                        googlePublicKeyService.getPublicKey(keyId)
-                    } catch (e: Exception) {
-                        log.error("Failed to resolve signing key for kid '{}': {}", keyId, e.message)
-                        throw SecurityException("Could not resolve signing key for kid '$keyId'", e)
-                    }
-                }
-                // Expiration (exp) and Not Before (nbf) are checked by default
+            // Create RSA256 algorithm with our key provider
+            val algorithm = Algorithm.RSA256(keyProvider)
+            
+            // Build JWT verifier with Auth0 library
+            val verifier = JWT.require(algorithm)
+                .acceptLeeway(1) // Allow 1 second of clock skew
                 .build()
 
-            // Parse the token and verify signature + standard claims (exp, nbf)
-            val jws: Jws<Claims> = parser.parseSignedClaims(token)
-            val claims = jws.payload
+            // Verify and decode the token
+            val decodedJWT = verifier.verify(token)
+            
+            // Custom validation for multiple Firebase projects
+            validateMultipleIssuers(decodedJWT.issuer) ?: return null
+            validateMultipleAudiences(decodedJWT.audience?.firstOrNull()) ?: return null
 
-            // Custom validation for multiple Firebase projects (post-parsing)
-            // JJWT's built-in require methods only support single values
-            validateMultipleIssuers(claims.issuer) ?: return null
-            validateMultipleAudiences(claims.audience?.toString()) ?: return null
+            return decodedJWT
 
-            return claims
-
-        } catch (ex: MissingClaimException) {
-            log.warn("JWT validation failed - Missing required claim: {}", ex.message)
-        } catch (ex: IncorrectClaimException) {
-            log.warn("JWT validation failed - Incorrect claim: {}", ex.message)
-        } catch (ex: SecurityException) {
-            log.warn("Invalid JWT signature or key issue: {}", ex.message)
-        } catch (ex: MalformedJwtException) {
-            log.warn("Invalid JWT token format: {}", ex.message)
-        } catch (ex: ExpiredJwtException) {
-            log.warn("Expired JWT token used: {}", ex.message)
-        } catch (ex: UnsupportedJwtException) {
-            log.warn("Unsupported JWT token type or structure: {}", ex.message)
-        } catch (ex: IllegalArgumentException) {
-            log.warn("JWT processing failed due to invalid argument: {}", ex.message)
+        } catch (ex: AlgorithmMismatchException) {
+            log.warn("JWT validation failed - Algorithm mismatch: {}", ex.message)
+        } catch (ex: SignatureVerificationException) {
+            log.warn("JWT validation failed - Signature verification failed: {}", ex.message)
+        } catch (ex: TokenExpiredException) {
+            log.warn("JWT validation failed - Token expired: {}", ex.message)
+        } catch (ex: InvalidClaimException) {
+            log.warn("JWT validation failed - Invalid claim: {}", ex.message)
+        } catch (ex: JWTDecodeException) {
+            log.warn("JWT validation failed - Token decode error: {}", ex.message)
+        } catch (ex: JWTVerificationException) {
+            log.warn("JWT validation failed - Verification error: {}", ex.message)
         } catch (e: Exception) {
             log.error("Unexpected error during JWT validation: {}", e.message, e)
         }
@@ -162,8 +165,8 @@ class JwtAuthFilter(
         }
     }
 
-    private fun setupAuthentication(request: HttpServletRequest, claims: Claims) {
-        val userId = claims.subject
+    private fun setupAuthentication(request: HttpServletRequest, decodedJWT: DecodedJWT) {
+        val userId = decodedJWT.subject
         if (userId.isNullOrBlank()) {
             log.warn("JWT subject (user ID) is missing or blank. Cannot set up authentication.")
             return

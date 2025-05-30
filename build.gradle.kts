@@ -26,10 +26,9 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-cache")
     implementation("org.springframework.boot:spring-boot-starter-actuator")
     
-    // JJWT dependencies
-    implementation("io.jsonwebtoken:jjwt-api:0.12.6")
-    runtimeOnly("io.jsonwebtoken:jjwt-impl:0.12.6")
-    runtimeOnly("io.jsonwebtoken:jjwt-jackson:0.12.6")
+    // Auth0 JWT dependencies
+    implementation("com.auth0:jwks-rsa:0.22.1")
+    implementation("com.auth0:java-jwt:4.4.0")
     
     // Caffeine cache
     implementation("com.github.ben-manes.caffeine:caffeine:3.2.0")
