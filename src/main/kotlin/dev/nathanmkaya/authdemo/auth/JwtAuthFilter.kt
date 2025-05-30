@@ -40,13 +40,14 @@ class JwtAuthFilter(
                 val claims = validateToken(token)
                 if (claims != null) {
                     setupAuthentication(request, claims)
-                    log.debug("JWT Authentication successful for user: {}", claims.subject)
+                    log.debug("JWT Authentication successful for userId: {}, issuer: {}", 
+                        claims.subject, claims.issuer)
                 } else {
-                    log.debug("JWT Token validation failed or token was invalid.")
+                    log.debug("JWT Token validation failed for request to: {}", request.requestURI)
                     SecurityContextHolder.clearContext()
                 }
             } else {
-                log.trace("No JWT token found in Authorization header.")
+                log.trace("No JWT token found in Authorization header for request to: {}", request.requestURI)
             }
         } catch (e: Exception) {
             log.error("Error processing JWT filter: {}", e.message, e)
@@ -71,6 +72,7 @@ class JwtAuthFilter(
                 .keyLocator { header ->
                     val keyId = header["kid"] as? String ?: throw UnsupportedJwtException("JWT header does not contain 'kid' claim.")
                     try {
+                        log.debug("Resolving signing key for kid: {}", keyId)
                         googlePublicKeyService.getPublicKey(keyId)
                     } catch (e: Exception) {
                         log.error("Failed to resolve signing key for kid '{}': {}", keyId, e.message)
@@ -87,12 +89,14 @@ class JwtAuthFilter(
             val audience = claims.audience?.toString()
             
             if (!allowedIssuers.contains(issuer)) {
-                log.warn("Invalid issuer: {}. Expected one of: {}", issuer, allowedIssuers)
+                log.warn("JWT validation failed - Invalid issuer: '{}'. Expected one of: [{}]", 
+                    issuer, allowedIssuers.joinToString(", "))
                 return null
             }
             
             if (!allowedAudiences.contains(audience)) {
-                log.warn("Invalid audience: {}. Expected one of: {}", audience, allowedAudiences)
+                log.warn("JWT validation failed - Invalid audience: '{}'. Expected one of: [{}]", 
+                    audience, allowedAudiences.joinToString(", "))
                 return null
             }
 

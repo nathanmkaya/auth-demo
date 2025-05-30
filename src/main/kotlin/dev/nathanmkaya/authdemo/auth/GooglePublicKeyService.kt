@@ -67,7 +67,8 @@ class GooglePublicKeyService(
                         log.debug("Parsed RSA public key for kid: {}", kid)
                     }
                 } catch (e: Exception) {
-                    log.warn("Failed to parse individual JWK: {}. Skipping.", keyData, e)
+                    log.warn("Failed to parse individual JWK with kid '{}'. Skipping. Error: {}", 
+                        keyData["kid"] ?: "unknown", e.message, e)
                 }
             }
 
@@ -85,7 +86,12 @@ class GooglePublicKeyService(
     }
 
     fun getPublicKey(kid: String): Key {
+        log.debug("Retrieving public key for kid: {}", kid)
         val jwkSetMap = fetchJwkSet()
-        return jwkSetMap[kid] ?: throw UnsupportedJwtException("JWT Key ID '$kid' not found in cached/fetched JWK Set from ${googleJwkProperties.jwkSetUri}")
+        return jwkSetMap[kid] ?: run {
+            log.error("JWT Key ID '{}' not found in JWK set. Available kids: {}", 
+                kid, jwkSetMap.keys.joinToString(", "))
+            throw UnsupportedJwtException("JWT Key ID '$kid' not found in cached/fetched JWK Set from ${googleJwkProperties.jwkSetUri}")
+        }
     }
 }
