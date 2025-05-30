@@ -2,6 +2,8 @@ package dev.nathanmkaya.authdemo.auth
 
 import com.fasterxml.jackson.core.type.TypeReference
 import com.fasterxml.jackson.databind.ObjectMapper
+import dev.nathanmkaya.authdemo.auth.exceptions.JwkFetchingException
+import dev.nathanmkaya.authdemo.auth.exceptions.JwkParsingException
 import dev.nathanmkaya.authdemo.config.GoogleJwkProperties
 import io.jsonwebtoken.UnsupportedJwtException
 import org.slf4j.LoggerFactory
@@ -36,12 +38,12 @@ class GooglePublicKeyService(
 
             if (responseBody == null) {
                 log.error("Received empty response body from JWK Set URI: {}", googleJwkProperties.jwkSetUri)
-                throw RuntimeException("Failed to fetch JWK Set: Empty response")
+                throw JwkFetchingException("Failed to fetch JWK Set: Empty response")
             }
 
             val objectMapper = ObjectMapper()
             val jwkMap: Map<String, List<Map<String, Any>>> = objectMapper.readValue(responseBody, object : TypeReference<Map<String, List<Map<String, Any>>>>() {})
-            val keysList = jwkMap["keys"] ?: throw RuntimeException("JWK Set JSON does not contain 'keys' array")
+            val keysList = jwkMap["keys"] ?: throw JwkParsingException("JWK Set JSON does not contain 'keys' array")
 
             val keyMap = mutableMapOf<String, Key>()
             
@@ -70,7 +72,7 @@ class GooglePublicKeyService(
             }
 
             if (keyMap.isEmpty()) {
-                throw RuntimeException("No valid JWKs could be parsed from the fetched set at ${googleJwkProperties.jwkSetUri}")
+                throw JwkParsingException("No valid JWKs could be parsed from the fetched set at ${googleJwkProperties.jwkSetUri}")
             }
 
             log.info("Successfully parsed {} public keys", keyMap.size)
@@ -78,7 +80,7 @@ class GooglePublicKeyService(
 
         } catch (e: Exception) {
             log.error("Failed to fetch or parse Google JWK Set from {}: {}", googleJwkProperties.jwkSetUri, e.message, e)
-            throw RuntimeException("Failed to obtain Google public keys from ${googleJwkProperties.jwkSetUri}", e)
+            throw JwkFetchingException("Failed to obtain Google public keys from ${googleJwkProperties.jwkSetUri}", e)
         }
     }
 
