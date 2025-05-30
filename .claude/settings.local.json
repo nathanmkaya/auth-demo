@@ -3,7 +3,8 @@
     "allow": [
       "Bash(jj commit:*)",
       "Bash(./gradlew:*)",
-      "Bash(jj status:*)"
+      "Bash(jj status:*)",
+      "Bash(rm:*)"
     ],
     "deny": []
   }
