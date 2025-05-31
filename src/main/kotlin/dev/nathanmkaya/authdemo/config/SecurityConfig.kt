@@ -15,26 +15,26 @@ import org.springframework.web.reactive.function.client.WebClient
 @EnableWebSecurity
 @EnableConfigurationProperties(FirebaseProperties::class, GoogleJwkProperties::class)
 class SecurityConfig {
-
     @Bean
-    fun securityFilterChain(http: HttpSecurity, jwtAuthFilter: JwtAuthFilter): SecurityFilterChain {
+    fun securityFilterChain(
+        http: HttpSecurity,
+        jwtAuthFilter: JwtAuthFilter,
+    ): SecurityFilterChain {
         http
             .csrf { csrf -> csrf.disable() }
             .sessionManagement { session ->
                 session.sessionCreationPolicy(SessionCreationPolicy.STATELESS)
-            }
-            .authorizeHttpRequests { authorize ->
+            }.authorizeHttpRequests { authorize ->
                 authorize
-                    .requestMatchers("/actuator/health").permitAll()
-                    .anyRequest().authenticated()
-            }
-            .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter::class.java)
+                    .requestMatchers("/actuator/health")
+                    .permitAll()
+                    .anyRequest()
+                    .authenticated()
+            }.addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter::class.java)
 
         return http.build()
     }
 
     @Bean
-    fun webClientBuilder(): WebClient.Builder {
-        return WebClient.builder()
-    }
+    fun webClientBuilder(): WebClient.Builder = WebClient.builder()
 }

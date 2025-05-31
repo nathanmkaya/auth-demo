@@ -25,14 +25,14 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-webflux")
     implementation("org.springframework.boot:spring-boot-starter-cache")
     implementation("org.springframework.boot:spring-boot-starter-actuator")
-    
+
     // Auth0 JWT dependencies
     implementation("com.auth0:jwks-rsa:0.22.1")
     implementation("com.auth0:java-jwt:4.4.0")
-    
+
     // Caffeine cache
     implementation("com.github.ben-manes.caffeine:caffeine:3.2.0")
-    
+
     implementation("org.jetbrains.kotlin:kotlin-reflect")
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testImplementation("org.jetbrains.kotlin:kotlin-test-junit5")
